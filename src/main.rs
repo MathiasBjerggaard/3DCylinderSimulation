@@ -3,11 +3,12 @@ use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 use std::fs::File;
 use rand_distr::Distribution;
-const BINDINGCHANCE: f64 = 0.25; // Adjust this to control P_on
+const BINDINGCHANCE: f64 = 0.05; // Adjust this to control P_on
 const RSQRD: f64 = 0.0025; 
-const RUNS:usize = 100000;
+//const RUNS:usize = 100000;
+const RUNS:usize = 10000;
 const TARGET_RADIUS_SQRD: f64 = 0.0025;
-const UNBINDCHANCE: f64 = 0.01; // Adjust this to control P_off
+const UNBINDCHANCE: f64 = 0.0; // Adjust this to control P_off
 
 fn main() -> Result<(), Box<dyn std::error::Error>>{
     //Ready the writing part of the code.
@@ -28,8 +29,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
 
     let mut boundpercent:Vec<i32> = vec![0;RUNS];
     let mut targetpercent:Vec<i32> = vec![0;RUNS];
-    let dna = placedna(50);
-    let mut particles = Placeparticles(number, &mut dna.clone());
+    let dna = placedna(1);
+    //let mut particles = Placeparticles(number, &mut dna.clone());
+    let mut particles = PlaceparticlesonDNA(number, &mut dna.clone());
     let mut status:Vec<usize> = vec![0;number];
     Save(&dna,&particles,&mut PosWriter);
     for i in 0..RUNS{
@@ -45,7 +47,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
             println!("Target: {}/{}",targetpercent[i],number);
         }
     }
-    saveboundpercent(targetpercent, &mut TTDwriter);
+    //saveboundpercent(targetpercent, &mut TTDwriter); //For finding the amount bound to the TARGET ZONE ON THE ONE SPECIFIC ROD
+    saveboundpercent(boundpercent, &mut TTDwriter); // For finding the amount bound to ANY ROD AT ANY POINT!
     Ok(())
 }
 
@@ -67,7 +70,7 @@ fn placedna(dnanumber: usize) -> Vec<(Vec<f64>, Vec<f64>)> {
         for i in 0..3 {
             if direction[i].abs() < 1e-8 {
                 // Line is (almost) parallel to this axis.
-                // If origin is outside the box slab on this axis, no intersection.
+                // If origin is outside the box slab on this axis, no intersection. 
                 if origin[i] < 0.0 || origin[i] > 1.0 {
                     return false;
                 }
@@ -146,6 +149,59 @@ fn placedna(dnanumber: usize) -> Vec<(Vec<f64>, Vec<f64>)> {
     dna
 }
 
+fn PlaceparticlesonDNA(number: usize, dna: &Vec<(Vec<f64>, Vec<f64>)>) -> Vec<Vec<f64>> {
+    let mut rng = rand::thread_rng();
+    let mut particles: Vec<Vec<f64>> = vec![vec![0.0; 3]; number];
+    let radius = 0.05;
+
+    let (center, direction) = &dna[0];
+
+    // Generate two orthonormal vectors perpendicular to the DNA direction
+    let mut v = [0.0, 0.0, 0.0];
+    if direction[0].abs() < 0.9 {
+        v = [1.0, 0.0, 0.0];
+    } else {
+        v = [0.0, 1.0, 0.0];
+    }
+    let dot = v[0]*direction[0] + v[1]*direction[1] + v[2]*direction[2];
+    let dir_norm2 = direction[0].powi(2) + direction[1].powi(2) + direction[2].powi(2);
+    let mut v2 = [
+        v[0] - dot/dir_norm2 * direction[0],
+        v[1] - dot/dir_norm2 * direction[1],
+        v[2] - dot/dir_norm2 * direction[2],
+    ];
+    let norm2 = (v2[0].powi(2) + v2[1].powi(2) + v2[2].powi(2)).sqrt();
+    v2 = [v2[0]/norm2, v2[1]/norm2, v2[2]/norm2];
+    let v3 = [
+        direction[1]*v2[2] - direction[2]*v2[1],
+        direction[2]*v2[0] - direction[0]*v2[2],
+        direction[0]*v2[1] - direction[1]*v2[0],
+    ];
+
+    for i in 0..number {
+        // Try until the particle is inside the box
+        'try_place: loop {
+            let t = rng.gen_range(-0.5..1.5);
+            let axis_point: Vec<f64> = center.iter().zip(direction.iter())
+                .map(|(c, d)| c + t * d)
+                .collect();
+            let theta = rng.gen_range(0.0..2.0*std::f64::consts::PI);
+
+            let mut p = vec![0.0; 3];
+            for j in 0..3 {
+                p[j] = axis_point[j] + radius * (theta.cos() * v2[j] + theta.sin() * v3[j]);
+            }
+            // Check if inside the unit box
+            if p.iter().all(|&x| x >= 0.0 && x <= 1.0) {
+                particles[i] = p;
+                break 'try_place;
+            }
+            // else: try again
+        }
+    }
+
+    particles
+}
 
 fn Placeparticles(number: usize, dna: &Vec<(Vec<f64>, Vec<f64>)>) -> Vec<Vec<f64>> {
     let mut rng = rand::rng();
@@ -206,9 +262,9 @@ fn moveparticles<'a>(mut particles:Vec<Vec<f64>>,  status: &'a mut Vec<usize>, n
     let mut rng = rand::rng();
     for i in 0..number{
         if status[i] == 0 {
-            particles[i][0] += rng.sample::<f64, _>(rand_distr::StandardNormal) / 100.0;
-            particles[i][1] += rng.sample::<f64, _>(rand_distr::StandardNormal) / 100.0;
-            particles[i][2] += rng.sample::<f64, _>(rand_distr::StandardNormal) / 100.0;
+            particles[i][0] += rng.sample::<f64, _>(rand_distr::StandardNormal) / 200.0;
+            particles[i][1] += rng.sample::<f64, _>(rand_distr::StandardNormal) / 200.0;
+            particles[i][2] += rng.sample::<f64, _>(rand_distr::StandardNormal) / 200.0;
         }
 
         if status[i] != 0 && status[i] != 999999{
@@ -216,42 +272,67 @@ fn moveparticles<'a>(mut particles:Vec<Vec<f64>>,  status: &'a mut Vec<usize>, n
             let DNAcenter = dna[status[i]-1].0.clone();
             // Take the distance from the center of the DNA to the particle
         if (particles[i][0] - DNAcenter[0]).powi(2) + (particles[i][1] - DNAcenter[1]).powi(2) + (particles[i][2] - DNAcenter[2]).powi(2) > TARGET_RADIUS_SQRD || status[i] != 1{
-                particles[i][0] += DNAdirection[0] * rng.sample::<f64, _>(rand_distr::StandardNormal) / 100.0;
-                particles[i][1] += DNAdirection[1] * rng.sample::<f64, _>(rand_distr::StandardNormal) / 100.0;
-                particles[i][2] += DNAdirection[2] * rng.sample::<f64, _>(rand_distr::StandardNormal) / 100.0;
+                particles[i][0] += DNAdirection[0] * rng.sample::<f64, _>(rand_distr::StandardNormal) / 200.0;
+                particles[i][1] += DNAdirection[1] * rng.sample::<f64, _>(rand_distr::StandardNormal) / 200.0;
+                particles[i][2] += DNAdirection[2] * rng.sample::<f64, _>(rand_distr::StandardNormal) / 200.0;
                 // Random chance to unbind
                 let random_number: f64 = rng.r#gen::<f64>();
                 if random_number < UNBINDCHANCE {
                     status[i] = 0; // Unbind the particle
                     // Generate a new random orthogonal vector to the DNA direction
                     let mut orthogonal_vector = vec![0.0; 3];
+                    let mut retry = true;
+                    while retry == true {
+                    retry = false;
+                    for j in 0..3 {
+                        orthogonal_vector[j] = rng.sample::<f64,_>(rand_distr::StandardNormal);
+                    }
+                    // Make the vector orthogonal to the DNA direction
 
-                    
+                    // Normalize the orthogonal vector
+                    let norm = (orthogonal_vector[0].powi(2) + orthogonal_vector[1].powi(2) + orthogonal_vector[2].powi(2)).sqrt();
+                    if norm > 0.0 {
+                        for j in 0..3 {
+                            orthogonal_vector[j] /= norm; // Normalize
+                        }
+                    }
+                    //Check that the vector is not perpendicular to the DNA direction
+                    let dot_product = DNAdirection.iter().zip(&orthogonal_vector).map(|(d, o)| d * o).sum::<f64>();
+                    if dot_product.abs() < 1e-6 {
+                        retry = true; // If the dot product is close to zero, the vector is perpendicular
+                        // If it is, generate a new orthogonal vector
+                        continue; // Skip this iteration and try again
+                    }
                 }
+                // Move the particle off the DNA strand in a random direction by the interaction radius distance.
+                particles[i][0] += orthogonal_vector[0] * 0.05; // Move away by 0.05 units (x)
+                particles[i][1] += orthogonal_vector[1] * 0.05; // Move away by 0.05 units (y)
+                particles[i][2] += orthogonal_vector[2] * 0.05; // Move away by 0.05 units (z)
+            }
             }
         else{
             status[i] = 999999;
         }
     }
         
-        if particles[i][0] > 1.0{
-            particles[i][0] = 1.0;
-        }
-        if particles[i][0] < 0.0{
-            particles[i][0] = 0.0;
-        }
-        if particles[i][1] > 1.0{
-            particles[i][1] = 1.0;
-        }
-        if particles[i][1] < 0.0{
-            particles[i][1] = 0.0;
-        }
-        if particles[i][2] > 1.0{
-            particles[i][2] = 1.0;
-        }
-        if particles[i][2] < 0.0{
-            particles[i][2] = 0.0;
-        }
+        if particles[i][0] > 1.0 {
+    particles[i][0] = 2.0 - particles[i][0];
+}
+if particles[i][0] < 0.0 {
+    particles[i][0] = -particles[i][0];
+}
+if particles[i][1] > 1.0 {
+    particles[i][1] = 2.0 - particles[i][1];
+}
+if particles[i][1] < 0.0 {
+    particles[i][1] = -particles[i][1];
+}
+if particles[i][2] > 1.0 {
+    particles[i][2] = 2.0 - particles[i][2];
+}
+if particles[i][2] < 0.0 {
+    particles[i][2] = -particles[i][2];
+}
     }
     (particles, status)
 }
@@ -264,7 +345,6 @@ fn detectcollision(
 ) -> Vec<usize> {
     const BINDING_DISTANCE: f64 = 0.05;
     const BINDING_DISTANCE_SQRD: f64 = BINDING_DISTANCE * BINDING_DISTANCE;
-    const BINDINGCHANCE: f64 = 0.1; // Adjust this to control P_on
 
     for (particle_index, particle) in particles.iter().enumerate() {
         if status[particle_index] != 0 {
